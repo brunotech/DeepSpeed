@@ -17,10 +17,7 @@ def debug_extract_module_and_param_names(model):
 
 
 def debug_module2name(module):
-    if module in module_names:
-        return module_names[module]
-    else:
-        return "unknown"
+    return module_names[module] if module in module_names else "unknown"
 
 
 def debug_module2name_id(module):
@@ -32,10 +29,7 @@ def debug_module2name_class(module):
 
 
 def debug_param2name(param):
-    if param in param_names:
-        return param_names[param]
-    else:
-        return "unknown"
+    return param_names[param] if param in param_names else "unknown"
 
 
 def debug_param2name_id(param):

@@ -88,9 +88,10 @@ class NcclBackend(object):
         recvbuf_sign = self.compression_backend.cupy2torch(cupy_recvbuf_sign)
         #recvbuf_scale = self.compression_backend.cupy2torch(cupy_recvbuf_scale)
         recvbuf_scale = [
-            torch.zeros(1,
-                        dtype=worker_scale.dtype,
-                        device=torch.device(local_rank)) for i in range(self.size)
+            torch.zeros(
+                1, dtype=worker_scale.dtype, device=torch.device(local_rank)
+            )
+            for _ in range(self.size)
         ]
 
         # communication phase 1
@@ -179,7 +180,7 @@ class NcclBackend(object):
                         self.compression_backend.cupy2torch(
                             cupy_recvbuf_scale_server)).flatten().data)
         if original_size != worker_error_size:
-            buffer_m = buffer_m[0:original_size]
+            buffer_m = buffer_m[:original_size]
         if len(original_shape) > 1:
             buffer_m = buffer_m.reshape(original_shape)
 

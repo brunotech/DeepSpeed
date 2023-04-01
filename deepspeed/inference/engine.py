@@ -78,10 +78,7 @@ class InferenceEngine(Module):
             self.module.register_forward_pre_hook(self._pre_forward_hook)
 
     def _get_model_config_generate(self):
-        if hasattr(self.module, 'config'):
-            self.config = self.module.config
-        else:
-            self.config = None
+        self.config = self.module.config if hasattr(self.module, 'config') else None
         if hasattr(self.module, 'generate'):
             self.generate = self.module.generate
         else:
@@ -95,7 +92,7 @@ class InferenceEngine(Module):
             local_rank = int(os.getenv('LOCAL_RANK', '0'))
             torch.cuda.set_device(local_rank)
 
-            ranks = [i for i in range(self.mp_world_size)]
+            ranks = list(range(self.mp_world_size))
             self.mp_group = dist.new_group(ranks)
             InferenceEngine.inference_mp_group = self.mp_group
         else:
@@ -119,8 +116,7 @@ class InferenceEngine(Module):
         assert self.mp_world_size >= 1
 
         if mpu:
-            methods = [f"get_model_parallel_group"]
-            methods.extend([f"get_data_parallel_group"])
+            methods = ["get_model_parallel_group", *["get_data_parallel_group"]]
             for method in methods:
                 assert hasattr(mpu, method), f"mpu is missing {method}"
 
@@ -199,21 +195,19 @@ class InferenceEngine(Module):
             *inputs: Variable length input list
             **kwargs: variable length keyword arguments
         """
-        if self.mp_world_size > 1:
-            if self.mpu is None:
-                for input in inputs:
-                    if torch.is_tensor(input):
-                        input = input.to(torch.cuda.current_device())
-                        if not input.is_contiguous():
-                            input = input.contiguous()
-                for k in kwargs:
-                    if torch.is_tensor(kwargs[k]):
-                        kwargs[k] = kwargs[k].to(torch.cuda.current_device())
-                        if not kwargs[k].is_contiguous():
-                            kwargs[k] = kwargs[k].contiguous()
-                        dist.broadcast(kwargs[k], 0)
+        if self.mp_world_size <= 1:
+            return self.module(*inputs, **kwargs)
+        if self.mpu is None:
+            for input in inputs:
+                if torch.is_tensor(input):
+                    input = input.to(torch.cuda.current_device())
+                    if not input.is_contiguous():
+                        input = input.contiguous()
+            for k, v in kwargs.items():
+                if torch.is_tensor(v):
+                    kwargs[k] = kwargs[k].to(torch.cuda.current_device())
+                    if not kwargs[k].is_contiguous():
+                        kwargs[k] = kwargs[k].contiguous()
+                    dist.broadcast(kwargs[k], 0)
 
-            outputs = self.model_orig_fwd(*inputs, **kwargs)
-        else:
-            outputs = self.module(*inputs, **kwargs)
-        return outputs
+        return self.model_orig_fwd(*inputs, **kwargs)

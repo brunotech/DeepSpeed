@@ -41,34 +41,33 @@ class PDSHRunner(MultiNodeRunner):
 
     def parse_user_args(self):
         return list(
-            map(lambda x: x if x.startswith("-") else "'{}'".format(x),
-                self.args.user_args))
+            map(
+                lambda x: x if x.startswith("-") else f"'{x}'", self.args.user_args
+            )
+        )
 
     def get_cmd(self, environment, active_resources):
         environment['PDSH_RCMD_TYPE'] = 'ssh'
 
         active_workers = ",".join(active_resources.keys())
-        logger.info("Running on the following workers: %s" % active_workers)
+        logger.info(f"Running on the following workers: {active_workers}")
 
         # PDSH flags for max node fan out and specific hosts to launch on
         # See https://linux.die.net/man/1/pdsh for flag details
         pdsh_cmd_args = ['pdsh', '-f', str(PDSH_MAX_FAN_OUT), '-w', active_workers]
 
-        exports = ""
-        for key, val in self.exports.items():
-            exports += "export {}={}; ".format(key, val)
-
+        exports = "".join(f"export {key}={val}; " for key, val in self.exports.items())
         deepspeed_launch = [
             exports,
-            "cd {};".format(os.path.abspath('.')),
+            f"cd {os.path.abspath('.')};",
             sys.executable,
             "-u",
             "-m",
             "deepspeed.launcher.launch",
-            '--world_info={}'.format(self.world_info_base64),
+            f'--world_info={self.world_info_base64}',
             "--node_rank=%n",
-            "--master_addr={}".format(self.args.master_addr),
-            "--master_port={}".format(self.args.master_port)
+            f"--master_addr={self.args.master_addr}",
+            f"--master_port={self.args.master_port}",
         ]
 
         return pdsh_cmd_args + deepspeed_launch + [self.user_script
@@ -163,7 +162,9 @@ class MVAPICHRunner(MultiNodeRunner):
         devices_per_node = self.resource_pool.values()
         total_process_count = sum(devices_per_node)
         process_per_node = list(devices_per_node)[0]
-        assert all([n == process_per_node for n in devices_per_node]), "mvapich requires same number of devices per node"
+        assert all(
+            n == process_per_node for n in devices_per_node
+        ), "mvapich requires same number of devices per node"
 
         with open(MVAPICH_TMP_HOSTFILE, 'w') as fd:
             for host in self.resource_pool.keys():

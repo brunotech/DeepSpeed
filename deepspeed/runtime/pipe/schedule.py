@@ -145,25 +145,30 @@ class InferenceSchedule(PipeSchedule):
                 recv_buf = (step_id + 1) % 2
                 send_buf = step_id % 2
 
-            if self.is_first_stage or self.is_last_stage:
-                if self._valid_micro_batch(micro_batch_id):
-                    cmds.append(LoadMicroBatch(recv_buf))
+            if (
+                self.is_first_stage or self.is_last_stage
+            ) and self._valid_micro_batch(micro_batch_id):
+                cmds.append(LoadMicroBatch(recv_buf))
 
             if _is_even(self.stage_id):
-                if self._valid_stage(self.next_stage):
-                    if self._valid_micro_batch(micro_batch_id - 1):
-                        cmds.append(SendActivation(send_buf))
-                if self._valid_stage(self.prev_stage):
-                    if self._valid_micro_batch(micro_batch_id):
-                        cmds.append(RecvActivation(recv_buf))
+                if self._valid_stage(self.next_stage) and self._valid_micro_batch(
+                    micro_batch_id - 1
+                ):
+                    cmds.append(SendActivation(send_buf))
+                if self._valid_stage(self.prev_stage) and self._valid_micro_batch(
+                    micro_batch_id
+                ):
+                    cmds.append(RecvActivation(recv_buf))
             else:
-                if self._valid_stage(self.prev_stage):
-                    if self._valid_micro_batch(micro_batch_id):
-                        cmds.append(RecvActivation(recv_buf))
+                if self._valid_stage(self.prev_stage) and self._valid_micro_batch(
+                    micro_batch_id
+                ):
+                    cmds.append(RecvActivation(recv_buf))
 
-                if self._valid_stage(self.next_stage):
-                    if self._valid_micro_batch(micro_batch_id - 1):
-                        cmds.append(SendActivation(send_buf))
+                if self._valid_stage(self.next_stage) and self._valid_micro_batch(
+                    micro_batch_id - 1
+                ):
+                    cmds.append(SendActivation(send_buf))
 
             if self._valid_micro_batch(micro_batch_id):
                 cmds.append(ForwardPass(recv_buf))
@@ -219,9 +224,12 @@ class TrainSchedule(PipeSchedule):
                     cmds.append(RecvGrad(curr_buffer))
 
             # First/last stage loads
-            if self.stage_id == 0 or self.stage_id == self.stages - 1:
-                if is_forward and self._valid_micro_batch(micro_batch_id):
-                    cmds.append(LoadMicroBatch(curr_buffer))
+            if (
+                self.stage_id in [0, self.stages - 1]
+                and is_forward
+                and self._valid_micro_batch(micro_batch_id)
+            ):
+                cmds.append(LoadMicroBatch(curr_buffer))
 
             # Computation
             if self._valid_micro_batch(micro_batch_id):
@@ -232,10 +240,7 @@ class TrainSchedule(PipeSchedule):
 
             # Model step at the end of the batch
             if step_id == total_steps - 1:
-                cmds.append(ReduceTiedGrads())
-                cmds.append(ReduceGrads())
-                cmds.append(OptimizerStep())
-
+                cmds.extend((ReduceTiedGrads(), ReduceGrads(), OptimizerStep()))
             # Prepare state for next time
             prev_micro_batch_id = micro_batch_id
             yield cmds
@@ -270,23 +275,19 @@ class TrainSchedule(PipeSchedule):
 
     def _even_step_forward_id(self, step_id):
         base = step_id // 2
-        micro_batch_id = int(base - self.stage_id // 2)
-        return micro_batch_id
+        return int(base - self.stage_id // 2)
 
     def _odd_step_forward_id(self, step_id):
         base = (step_id - 1) // 2
-        micro_batch_id = int(base - self.stage_id // 2)
-        return micro_batch_id
+        return int(base - self.stage_id // 2)
 
     def _even_step_backward_id(self, step_id):
         base = step_id // 2
-        micro_batch_id = int(base - self.stages + (self.stage_id + 1) // 2)
-        return micro_batch_id
+        return int(base - self.stages + (self.stage_id + 1) // 2)
 
     def _odd_step_backward_id(self, step_id):
         base = ((step_id - 1) // 2) - self.stages + 1
-        micro_batch_id = int(base + self.stage_id // 2)
-        return micro_batch_id
+        return int(base + self.stage_id // 2)
 
 
 class DataParallelSchedule(PipeSchedule):

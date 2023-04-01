@@ -232,14 +232,14 @@ class PipelinedOptimizerSwapper(OptimizerSwapper):
 
         swap_out_tensors(aio_handle, swap_buffers, swap_paths)
 
-        swap_out_op = OptimizerSwapOp(aio_handle=aio_handle,
-                                      param_info=param_info,
-                                      read_op=False,
-                                      allocated_buffers=allocated_buffers,
-                                      state_buffers=swap_buffers,
-                                      num_ops=len(swap_buffers))
-
-        return swap_out_op
+        return OptimizerSwapOp(
+            aio_handle=aio_handle,
+            param_info=param_info,
+            read_op=False,
+            allocated_buffers=allocated_buffers,
+            state_buffers=swap_buffers,
+            num_ops=len(swap_buffers),
+        )
 
     def _swap_in_optimizer_state(self, aio_handle, parameter):
         param_info = self._get_param_swap_info(parameter)
@@ -254,7 +254,7 @@ class PipelinedOptimizerSwapper(OptimizerSwapper):
             count=required_buffer_count,
             dtype=parameter.dtype)
         assert allocated_buffers is not None, \
-        f"PipelinedOptimizerSwapper ran out of swap buffers, try increasing {OFFLOAD_OPTIMIZER_BUFFER_COUNT}"
+            f"PipelinedOptimizerSwapper ran out of swap buffers, try increasing {OFFLOAD_OPTIMIZER_BUFFER_COUNT}"
 
         state_buffers = allocated_buffers[:len(param_info.tensors)]
         param_info.set_swap_buffers(state_buffers)
@@ -274,11 +274,11 @@ class PipelinedOptimizerSwapper(OptimizerSwapper):
             self._retrieve_unswapped_grad_partitions(swap_info=param_info,
                                                      dest_buffer=parameter.grad)
 
-        swap_in_op = OptimizerSwapOp(aio_handle=aio_handle,
-                                     param_info=param_info,
-                                     read_op=True,
-                                     allocated_buffers=allocated_buffers,
-                                     state_buffers=state_buffers,
-                                     num_ops=len(swap_buffers))
-
-        return swap_in_op
+        return OptimizerSwapOp(
+            aio_handle=aio_handle,
+            param_info=param_info,
+            read_op=True,
+            allocated_buffers=allocated_buffers,
+            state_buffers=state_buffers,
+            num_ops=len(swap_buffers),
+        )

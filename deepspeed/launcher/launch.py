@@ -111,7 +111,7 @@ def main():
     current_env["WORLD_SIZE"] = str(dist_world_size)
 
     processes = []
-    for local_rank in range(0, num_local_procs):
+    for local_rank in range(num_local_procs):
         # each process's rank
         dist_rank = global_rank_mapping[local_node][local_rank]
         current_env["RANK"] = str(dist_rank)
@@ -155,13 +155,12 @@ def main():
             if process.poll() is None:
                 # the process is still running
                 continue
+            if process.returncode != 0:
+                last_return_code = process.returncode  # for sigkill_handler
+                sigkill_handler(signal.SIGTERM, None)  # not coming back
             else:
-                if process.returncode != 0:
-                    last_return_code = process.returncode  # for sigkill_handler
-                    sigkill_handler(signal.SIGTERM, None)  # not coming back
-                else:
-                    # exited cleanly
-                    finished_processes.append(process)
+                # exited cleanly
+                finished_processes.append(process)
         alive_processes = set(alive_processes) - set(finished_processes)
 
         time.sleep(1)

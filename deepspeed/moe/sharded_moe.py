@@ -1,6 +1,7 @@
 '''
 Copyright 2021 The Microsoft DeepSpeed Team
 '''
+
 # The file has been adapted from two fairscale files:
 # (1) https://github.com/facebookresearch/fairscale/blob/master/fairscale/nn/moe/moe_layer.py
 # (2) https://github.com/facebookresearch/fairscale/blob/master/fairscale/nn/moe/top2gate.py
@@ -21,11 +22,7 @@ from torch import Tensor
 import torch.distributed as dist
 from torch.nn import Module, ModuleList
 
-if TYPE_CHECKING:
-    Base = Module[Tensor]
-else:
-    Base = Module
-
+Base = Module[Tensor] if TYPE_CHECKING else Module
 uniform_map: Dict[torch.device, Callable] = {}
 gumbel_map: Dict[torch.device, Callable] = {}
 exp_selection_uniform_map: Dict[torch.device, Callable] = {}
@@ -114,9 +111,7 @@ def top1gating(logits: torch.Tensor,
     num_experts = gates.shape[1]
     # round-up
     capacity = math.ceil((num_tokens / num_experts) * capacity_factor)
-    if capacity < min_capacity:
-        capacity = min_capacity
-
+    capacity = max(capacity, min_capacity)
     # Create a mask for 1st's expert per token
     # noisy gating
     indices1_s = torch.argmax(
@@ -273,7 +268,7 @@ class TopKGate(torch.nn.Module):
         super().__init__()
 
         # Only top-1 and top-2 are supported at the moment.
-        if k != 1 and k != 2:
+        if k not in [1, 2]:
             raise ValueError('Only top-1 and top-2 gatings are supported.')
         self.wg = torch.nn.Linear(model_dim, num_experts, bias=False).float()
         self.k = k

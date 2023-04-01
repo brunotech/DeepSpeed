@@ -171,23 +171,31 @@ def replace_transformer_layer(orig_layer_impl,
         mp_replace = ReplaceWithTensorSlicing(mp_group=mp_group)
 
         if inference:
-            transformer_config = transformer_inference.DeepSpeedInferenceConfig(
-                hidden_size=hidden_size,
-                heads=num_attention_heads,
-                layer_norm_eps=config.layer_norm_eps if hasattr(
-                    config,
-                    'layer_norm_eps') else 1e-12,
-                fp16=fp16,
-                pre_layer_norm=preln,
-                mp_size=mp_size,
-                q_int8=quantize,
-                encoder_decoder=(True if policy_cls is HFBertLayerPolicy else False),
-                triangular_masking=(policy_cls is not HFBertLayerPolicy),
-                local_attention=((config.attention_layers[layer_id] == "local")
-                                 if hasattr(config,
-                                            'attention_layers') else False),
-                window_size=(config.window_size if hasattr(config,
-                                                           'window_size') else 1))
+            transformer_config = (
+                transformer_inference.DeepSpeedInferenceConfig(
+                    hidden_size=hidden_size,
+                    heads=num_attention_heads,
+                    layer_norm_eps=config.layer_norm_eps
+                    if hasattr(config, 'layer_norm_eps')
+                    else 1e-12,
+                    fp16=fp16,
+                    pre_layer_norm=preln,
+                    mp_size=mp_size,
+                    q_int8=quantize,
+                    encoder_decoder=policy_cls is HFBertLayerPolicy,
+                    triangular_masking=(policy_cls is not HFBertLayerPolicy),
+                    local_attention=(
+                        (config.attention_layers[layer_id] == "local")
+                        if hasattr(config, 'attention_layers')
+                        else False
+                    ),
+                    window_size=(
+                        config.window_size
+                        if hasattr(config, 'window_size')
+                        else 1
+                    ),
+                )
+            )
 
             if quantize and quantize_settings is not None:
                 (quantization_scales,
@@ -401,13 +409,13 @@ def replace_module(model, orig_class, replace_fn, _replace_policy):
     """
     policy = {}
     if orig_class is not None:
-        policy.update({orig_class: (replace_fn, _replace_policy)})
+        policy[orig_class] = (replace_fn, _replace_policy)
     else:
         for plcy in replace_policies:
             # instantiate a throw-away policy in order to populate the _orig_layer_class
             _ = plcy(None)
             if plcy._orig_layer_class is not None:
-                policy.update({plcy._orig_layer_class: (replace_fn, plcy)})
+                policy[plcy._orig_layer_class] = (replace_fn, plcy)
     assert len(policy.items()) > 0,\
         "No default policy found! Please specify your policy injection_policy (like {BertLayer:HFBEertLayerPolicy})." +\
         "You can find some samples here: https://github.com/microsoft/DeepSpeed/blob/master/deepspeed/module_inject/replace_policy.py"

@@ -103,7 +103,7 @@ class AsyncPartitionedParameterSwapper(object):
             self.elements_per_buffer)
         self.param_buffer_count = self.swap_config[OFFLOAD_PARAM_BUFFER_COUNT]
 
-        self.available_buffer_ids = [i for i in range(self.param_buffer_count)]
+        self.available_buffer_ids = list(range(self.param_buffer_count))
         self.reserved_buffer_ids = []
         self.buffers = torch.empty(int(self.aligned_elements_per_buffer *
                                        self.param_buffer_count),
@@ -288,7 +288,10 @@ class AsyncPartitionedParameterSwapper(object):
     #assigns an in memory buffer and swaps in from nvme
     def swap_in(self, params, async_op=True, swap_in_buffers=None):
 
-        assert all([param.ds_tensor.status == PartitionedParamStatus.NOT_AVAILABLE for param in params]), "Some params are already available or in flight"
+        assert all(
+            param.ds_tensor.status == PartitionedParamStatus.NOT_AVAILABLE
+            for param in params
+        ), "Some params are already available or in flight"
         swap_in_paths = self._get_swap_paths(params)
 
         if swap_in_buffers is None:
@@ -305,9 +308,9 @@ class AsyncPartitionedParameterSwapper(object):
 
             assert len(swap_in_paths) <= len(self.available_buffer_ids), f"Not enough buffers {len(self.available_buffer_ids)} for swapping {len(swap_in_paths)}"
             compute_buffers, swap_in_buffers = self._allocate_and_return_buffers_for_swap_in(params)
-            inflight_numel = sum([t.numel() for t in compute_buffers])
+            inflight_numel = sum(t.numel() for t in compute_buffers)
         else:
-            inflight_numel = sum([t.numel() for t in swap_in_buffers])
+            inflight_numel = sum(t.numel() for t in swap_in_buffers)
 
         swap_in_tensors(self.aio_read_handle, swap_in_buffers, swap_in_paths)
 
@@ -389,17 +392,22 @@ class AsyncPartitionedParameterSwapper(object):
 
     def reserve_partitioned_swap_space(self, partition_num_elems):
         aligned_numel = sum(
-            [self._io_aligned_numel(numel) for numel in partition_num_elems])
+            self._io_aligned_numel(numel) for numel in partition_num_elems
+        )
         self.partitioned_swap_buffer = torch.zeros(aligned_numel,
                                                    device='cpu',
                                                    dtype=torch.half).pin_memory()
         self.partitioned_swap_pool = SwapBufferPool([self.partitioned_swap_buffer])
 
     def swap_out_partitioned_params(self, dst_fp16_params, src_fp32_params):
-        assert self.partitioned_swap_buffer is not None, f'partitioned swap buffers for fp16 params not initialized'
-        assert self.partitioned_swap_pool is not None, f'partitioned swap pool for fp16 params not initialized'
+        assert (
+            self.partitioned_swap_buffer is not None
+        ), 'partitioned swap buffers for fp16 params not initialized'
+        assert (
+            self.partitioned_swap_pool is not None
+        ), 'partitioned swap pool for fp16 params not initialized'
         assert len(dst_fp16_params) == len(src_fp32_params), \
-        f'mismatch in number of fp16 params {len(dst_fp16_params)} and fp32 params {len(src_fp32_params)}'
+            f'mismatch in number of fp16 params {len(dst_fp16_params)} and fp32 params {len(src_fp32_params)}'
 
         fp16_swap_paths = self._get_swap_paths(dst_fp16_params, must_exist=True)
         self.synchronize_writes()

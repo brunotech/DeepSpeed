@@ -21,7 +21,7 @@ def get_alignment_padding(flattened_lean_size, sub_partition_id, sub_partition_s
 
 def get_group_alignment_padding(tensor_list, sub_partition_size, sub_partition_count):
     group_paddings = []
-    flattened_size = sum([tensor.numel() for tensor in tensor_list])
+    flattened_size = sum(tensor.numel() for tensor in tensor_list)
     for i in range(sub_partition_count):
         padding = get_alignment_padding(flattened_size, i, sub_partition_size)
         group_paddings.append(padding)
@@ -49,9 +49,7 @@ def _range_check(current_index, element_intervals, tensor_size):
         contained, offset = _single_range_check(current_index, start_index, end_index, tensor_size)
         if contained:
             results.append((contained, offset, comm_idx))
-    if len(results) == 0:
-        return [(False, 0, -1)]
-    return results
+    return results or [(False, 0, -1)]
 
 
 class FP16_DeepSpeedZeroOptimizer_Stage1(object):
@@ -269,7 +267,7 @@ class FP16_DeepSpeedZeroOptimizer_Stage1(object):
 
     def _initialize_optimizer_states(self):
         for group_idx, group in enumerate(self.local_sub_partitions_of_fp32_groups):
-            for idx, sub_partition_param in enumerate(group):
+            for sub_partition_param in group:
                 sub_partition_grad = torch.zeros(int(
                     self.sub_partition_sizes[group_idx]),
                                                  dtype=sub_partition_param.dtype).cuda()
@@ -278,7 +276,7 @@ class FP16_DeepSpeedZeroOptimizer_Stage1(object):
         self.optimizer.step()
 
         for group in self.local_sub_partitions_of_fp32_groups:
-            for idx, sub_partition_param in enumerate(group):
+            for sub_partition_param in group:
                 sub_partition_param.grad = None
 
     @staticmethod
@@ -322,11 +320,15 @@ class FP16_DeepSpeedZeroOptimizer_Stage1(object):
 
         # Ensure partition alignment was done correctly
         num_sub_partitions = int(total_num_elements // sub_partition_size)
-        assert total_num_elements % sub_partition_size == 0, "{} % {} != 0".format(total_num_elements, sub_partition_size)
+        assert (
+            total_num_elements % sub_partition_size == 0
+        ), f"{total_num_elements} % {sub_partition_size} != 0"
 
         # Ensure comm interval alignment was done correctly.
         num_comm_intervals = int(num_sub_partitions // world_size)
-        assert num_sub_partitions % world_size == 0, "{} % {} != 0".format(num_sub_partitions, world_size)
+        assert (
+            num_sub_partitions % world_size == 0
+        ), f"{num_sub_partitions} % {world_size} != 0"
 
         if not dist.is_initialized() or dist.get_rank(group=dp_process_group) == 0:
             logger.info("**** partition info:")
@@ -338,11 +340,7 @@ class FP16_DeepSpeedZeroOptimizer_Stage1(object):
             logger.info("\t num_comm_intervals=%s", num_comm_intervals)
             logger.info("****")
 
-        # [comm_id] -> [rank]
-        comm_partitions = []
-        for _ in range(num_comm_intervals):
-            comm_partitions.append([])
-
+        comm_partitions = [[] for _ in range(num_comm_intervals)]
         start = 0
         comm_id = 0
         element_intervals = defaultdict(
@@ -356,11 +354,8 @@ class FP16_DeepSpeedZeroOptimizer_Stage1(object):
             if rank_id == (world_size - 1):
                 comm_id += 1
 
-        # [rank] -> [comm_id]
-        sub_partitions = []
-        for _ in range(world_size):
-            sub_partitions.append([])
-        for comm_id, partitions in enumerate(comm_partitions):
+        sub_partitions = [[] for _ in range(world_size)]
+        for partitions in comm_partitions:
             for rank_id, partition in enumerate(partitions):
                 sub_partitions[rank_id].append(partition)
 
@@ -455,9 +450,7 @@ class FP16_DeepSpeedZeroOptimizer_Stage1(object):
 
                 # We don't need all elements of the tensor if this tensor is
                 # larger than we have space for in our curr sub-partition
-                if num_elements > (sub_partition_size - current_size):
-                    num_elements = sub_partition_size - current_size
-
+                num_elements = min(num_elements, sub_partition_size - current_size)
                 #we need a narrow view of the tensor based on the tensor offset and number of elements that
                 #we need from this tensor
                 if tensor_offset > 0 or num_elements < tensor.numel():
@@ -491,7 +484,9 @@ class FP16_DeepSpeedZeroOptimizer_Stage1(object):
                                     device=tensor_list[0].device))
             partition_params.append(my_params)  #flat_tensor_list)
             final_param_offsets.append(my_offsets)
-            assert len(flat_tensor_list) == len(my_offsets), "{} {}".format(len(flat_tensor_list), len(my_offsets))
+            assert len(flat_tensor_list) == len(
+                my_offsets
+            ), f"{len(flat_tensor_list)} {len(my_offsets)}"
             flat_sub_partitions.append(self.flatten(flat_tensor_list))
         if num_comm_intervals is not None and len(
                 flat_sub_partitions) < num_comm_intervals:
@@ -507,7 +502,9 @@ class FP16_DeepSpeedZeroOptimizer_Stage1(object):
 
         if return_partition_params:
             assert len(flat_sub_partitions) == len(partition_params)
-            assert len(partition_params) == len(final_param_offsets), "{} {}".format(len(partition_params), len(final_param_offsets))
+            assert len(partition_params) == len(
+                final_param_offsets
+            ), f"{len(partition_params)} {len(final_param_offsets)}"
             return flat_sub_partitions, partition_params, final_param_offsets
         return flat_sub_partitions
 
@@ -521,10 +518,9 @@ class FP16_DeepSpeedZeroOptimizer_Stage1(object):
             for p in group:
                 if set_grads_to_None:
                     p.grad = None
-                else:
-                    if p.grad is not None:
-                        p.grad.detach_()
-                        p.grad.zero_()
+                elif p.grad is not None:
+                    p.grad.detach_()
+                    p.grad.zero_()
 
     def free_grad_in_param_list(self, param_list):
         for p in param_list:

@@ -39,9 +39,7 @@ def print_rank_0(message, debug=False, force=False):
 
 
 def is_zero_param(parameter):
-    if not torch.is_tensor(parameter):
-        return False
-    return hasattr(parameter, 'ds_id')
+    return hasattr(parameter, 'ds_id') if torch.is_tensor(parameter) else False
 
 
 def _init_external_params(module):
@@ -162,35 +160,27 @@ _orig_torch_empty = torch.empty
 
 
 def empty_cuda_tensor_half(*size, **kwargs):
-    if not 'device' in kwargs.keys():
-        kwargs['device'] = torch.device('cuda:{}'.format(os.environ["LOCAL_RANK"]))
+    if 'device' not in kwargs:
+        kwargs['device'] = torch.device(f'cuda:{os.environ["LOCAL_RANK"]}')
     tensor = _orig_torch_empty(*size, **kwargs)
-    if tensor.is_floating_point():
-        return tensor.half()
-    else:
-        return tensor
+    return tensor.half() if tensor.is_floating_point() else tensor
 
 
 def new_cuda_tensor_half(cls, *args):
-    device = torch.device('cuda:{}'.format(os.environ["LOCAL_RANK"]))
+    device = torch.device(f'cuda:{os.environ["LOCAL_RANK"]}')
     tensor = torch.ones((1, 1), device=device).new_empty(*args).half()
-    if tensor.is_floating_point():
-        return tensor.half()
-    else:
-        return tensor
+    return tensor.half() if tensor.is_floating_point() else tensor
 
 
 def empty_cuda_tensor(*size, **kwargs):
-    if not 'device' in kwargs.keys():
-        kwargs['device'] = torch.device('cuda:{}'.format(os.environ["LOCAL_RANK"]))
-    tensor = _orig_torch_empty(*size, **kwargs)
-    return tensor
+    if 'device' not in kwargs:
+        kwargs['device'] = torch.device(f'cuda:{os.environ["LOCAL_RANK"]}')
+    return _orig_torch_empty(*size, **kwargs)
 
 
 def new_cuda_tensor(cls, *args):
-    device = torch.device('cuda:{}'.format(os.environ["LOCAL_RANK"]))
-    tensor = torch.ones((1, 1), device=device).new_empty(*args)
-    return tensor
+    device = torch.device(f'cuda:{os.environ["LOCAL_RANK"]}')
+    return torch.ones((1, 1), device=device).new_empty(*args)
 
 
 # https://stackoverflow.com/a/63851681/9201239
@@ -453,7 +443,7 @@ class Init(InsertPostInitMethodToModuleSubClasses):
         if config is not None:
             config_dict_or_path = config
             logger.warning(
-                f'zero.Init: the `config` argument is deprecated. Please use `config_dict_or_path` instead.'
+                'zero.Init: the `config` argument is deprecated. Please use `config_dict_or_path` instead.'
             )
 
         _ds_config = DeepSpeedConfig(config_dict_or_path,
@@ -475,7 +465,7 @@ class Init(InsertPostInitMethodToModuleSubClasses):
 
         # Local device is the device where the parameters are consumed
         # It is the device where parameters are fully instantiated using allgather
-        self.local_device = torch.device('cuda:{}'.format(os.environ["LOCAL_RANK"]))
+        self.local_device = torch.device(f'cuda:{os.environ["LOCAL_RANK"]}')
 
         self._validate_remote_device(remote_device, _ds_config)
 
@@ -502,19 +492,21 @@ class Init(InsertPostInitMethodToModuleSubClasses):
 
     def _validate_remote_device(self, remote_device, ds_config):
         if ds_config is not None:
-            if remote_device in [None, OFFLOAD_CPU_DEVICE]:
-                if ds_config.zero_config.offload_param is not None:
-                    offload_param_device = ds_config.zero_config.offload_param[
-                        OFFLOAD_PARAM_DEVICE]
-                    assert offload_param_device != OFFLOAD_NVME_DEVICE, \
+            if (
+                remote_device in [None, OFFLOAD_CPU_DEVICE]
+                and ds_config.zero_config.offload_param is not None
+            ):
+                offload_param_device = ds_config.zero_config.offload_param[
+                    OFFLOAD_PARAM_DEVICE]
+                assert offload_param_device != OFFLOAD_NVME_DEVICE, \
                         f"{OFFLOAD_PARAM_DEVICE} in DeepSpeed Config cannot be {offload_param_device} if remote device is {remote_device}."
 
             if remote_device == OFFLOAD_NVME_DEVICE:
                 assert ds_config.zero_config.offload_param is not None, \
-                f'{OFFLOAD_PARAM} must be defined in DeepSpeed Config if remote device is {OFFLOAD_NVME_DEVICE}.'
+                    f'{OFFLOAD_PARAM} must be defined in DeepSpeed Config if remote device is {OFFLOAD_NVME_DEVICE}.'
 
                 assert ds_config.zero_config.offload_param[OFFLOAD_PARAM_NVME_PATH] is not None, \
-                f'{OFFLOAD_PARAM_NVME_PATH} in DeepSpeed Config cannot be None if remote device is {OFFLOAD_NVME_DEVICE}'
+                    f'{OFFLOAD_PARAM_NVME_PATH} in DeepSpeed Config cannot be None if remote device is {OFFLOAD_NVME_DEVICE}'
 
     def _post_init_method(self, module):
         #see_memory_usage(f"Before converting parmas in {module.__class__.__name__}", force=False)
@@ -654,7 +646,7 @@ class Init(InsertPostInitMethodToModuleSubClasses):
             if param.ds_tensor.status == PartitionedParamStatus.INFLIGHT:
                 assert param.ds_tensor.final_location == OFFLOAD_NVME_DEVICE and param.ds_status == ZeroParamStatus.NOT_AVAILABLE
                 swap_in_flight.append(param)
-        if len(swap_in_list) > 0:
+        if swap_in_list:
             swap_in_list[0].nvme_swapper.swap_in(swap_in_list, async_op=False)
         elif len(swap_in_flight) > 0:
             swap_in_flight[0].nvme_swapper.synchronize_reads()
@@ -781,20 +773,15 @@ class Init(InsertPostInitMethodToModuleSubClasses):
                 param.ds_tensor.copy_(src_tensor)
                 #partitioned_tensor = src_tensor.clone().detach().to(self.remote_device)
 
-            else:
-                # partitioned_tensor = torch.zeros(partition_size,
-                #                                  dtype=param.dtype,
-                #                                  device=self.remote_device )
-
-                if start < param.ds_numel:
-                    elements_to_copy = param.ds_numel - start
-                    param.ds_tensor.narrow(0,
-                                           0,
-                                           elements_to_copy).copy_(
-                                               one_dim_param.narrow(
-                                                   0,
-                                                   start,
-                                                   elements_to_copy))
+            elif start < param.ds_numel:
+                elements_to_copy = param.ds_numel - start
+                param.ds_tensor.narrow(0,
+                                       0,
+                                       elements_to_copy).copy_(
+                                           one_dim_param.narrow(
+                                               0,
+                                               start,
+                                               elements_to_copy))
 
             #print(f"Remote device {self.remote_device}")
 
@@ -885,7 +872,7 @@ class Init(InsertPostInitMethodToModuleSubClasses):
         if len(param_list) == 0:
             return
 
-        partition_size = sum([param.ds_tensor.ds_numel for param in param_list])
+        partition_size = sum(param.ds_tensor.ds_numel for param in param_list)
 
         tensor_size = partition_size * self.world_size
         flat_tensor = torch.empty(tensor_size,

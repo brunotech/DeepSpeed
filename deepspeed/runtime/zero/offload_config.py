@@ -27,11 +27,10 @@ OFFLOAD_OPTIMIZER_KEY_DEFAULT_DICT = {
 
 
 def _get_offload_config(param_dict, key_default_dict):
-    offload_config = {}
-    for key, default_value in key_default_dict.items():
-        offload_config[key] = get_scalar_param(param_dict, key, default_value)
-
-    return offload_config
+    return {
+        key: get_scalar_param(param_dict, key, default_value)
+        for key, default_value in key_default_dict.items()
+    }
 
 
 def get_offload_param_config(param_dict):

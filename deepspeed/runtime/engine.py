@@ -1,6 +1,7 @@
 '''
 Copyright 2019 The Microsoft DeepSpeed Team
 '''
+
 import os
 import re
 import stat
@@ -74,7 +75,6 @@ try:
 except ImportError:
     # Fail silently so we don't spam logs unnecessarily if user isn't using amp
     APEX_INSTALLED = False
-    pass
 
 
 def split_half_float_double_csr(tensors):
@@ -89,18 +89,17 @@ def split_half_float_double_csr(tensors):
         assert t.type() in supported_types, f"attempting to reduce an unsupported grad type: {t.type()}"
 
     buckets = []
-    for i, dtype in enumerate(supported_types):
-        bucket = [t for t in tensors if t.type() == dtype]
-        if bucket:
+    for dtype in supported_types:
+        if bucket := [t for t in tensors if t.type() == dtype]:
             buckets.append((dtype, bucket))
     return buckets
 
 
 def print_configuration(args, name):
-    logger.info('{}:'.format(name))
+    logger.info(f'{name}:')
     for arg in sorted(vars(args)):
         dots = '.' * (29 - len(arg))
-        logger.info('  {} {} {}'.format(arg, dots, getattr(args, arg)))
+        logger.info(f'  {arg} {dots} {getattr(args, arg)}')
 
 
 class DeepSpeedEngine(Module):
@@ -167,28 +166,28 @@ class DeepSpeedEngine(Module):
             # Initialize torch distributed if needed
             init_distributed(dist_backend=self.dist_backend)
 
-        see_memory_usage(f"DeepSpeed Engine: Before args sanity test")
+        see_memory_usage("DeepSpeed Engine: Before args sanity test")
         self._do_args_sanity_check(args)
         self._configure_with_arguments(args, mpu)
         self._do_sanity_check()
 
         if mpu is not None:
             assert not self.elasticity_enabled(), "Elasticity is not currently supported" \
-                " with model parallelism."
+                    " with model parallelism."
 
         self._set_distributed_vars(args)
 
         if self.tensorboard_enabled() and self.global_rank == 0:
             self.summary_writer = self.get_summary_writer()
 
-        see_memory_usage(f"DeepSpeed Engine: Before configure distributed model")
+        see_memory_usage("DeepSpeed Engine: Before configure distributed model")
 
         self.pipeline_parallelism = isinstance(model, PipelineModule)
 
         # Configure distributed model
         self._configure_distributed_model(model)
 
-        see_memory_usage(f"DeepSpeed Engine: After configure distributed model")
+        see_memory_usage("DeepSpeed Engine: After configure distributed model")
 
         # Configure wall clock timer
         self.timers = SynchronizedWallClockTimer()
@@ -226,9 +225,8 @@ class DeepSpeedEngine(Module):
         if self.sparse_gradients_enabled():
             for name, module in self.module.named_modules():
                 if isinstance(module, torch.nn.Embedding):
-                    self.csr_tensor_module_names.add(name + ".weight")
-                    logger.info("Will convert {} to sparse (csr) "
-                                "tensor during training".format(name))
+                    self.csr_tensor_module_names.add(f"{name}.weight")
+                    logger.info(f"Will convert {name} to sparse (csr) tensor during training")
 
         self.save_non_zero_checkpoint = False
         self.save_zero_checkpoint = False
@@ -280,7 +278,8 @@ class DeepSpeedEngine(Module):
                                self.dp_world_size) != 0:
             #print(f'{train_batch_size=} {self.train_micro_batch_size_per_gpu()=} {self.dp_world_size=}')
             raise ValueError(
-                f'Train batch size must be divisible by micro-batch data parallelism')
+                'Train batch size must be divisible by micro-batch data parallelism'
+            )
         new_gas = train_batch_size // (self.train_micro_batch_size_per_gpu() *
                                        self.dp_world_size)
         # overwrite config
@@ -579,31 +578,25 @@ class DeepSpeedEngine(Module):
         return self._config.aio_config
 
     def _configure_lr_scheduler(self, client_lr_scheduler):
-        # First check for scheduler in json configuration
-        lr_scheduler = self._scheduler_from_config(self.optimizer)
-        if lr_scheduler:
+        if lr_scheduler := self._scheduler_from_config(self.optimizer):
             if self.global_rank == 0:
                 logger.info(
                     f'DeepSpeed using configured LR scheduler = {self.scheduler_name()}')
             self.lr_scheduler = lr_scheduler
+        elif isinstance(client_lr_scheduler, Callable):
+            if self.global_rank == 0:
+                logger.info('DeepSpeed using client callable to create LR scheduler')
+            self.lr_scheduler = client_lr_scheduler(self.basic_optimizer)
         else:
-            if isinstance(client_lr_scheduler, Callable):
-                if self.global_rank == 0:
-                    logger.info('DeepSpeed using client callable to create LR scheduler')
-                self.lr_scheduler = client_lr_scheduler(self.basic_optimizer)
-            else:
-                if self.global_rank == 0:
-                    logger.info('DeepSpeed using client LR scheduler')
-                self.lr_scheduler = client_lr_scheduler
+            if self.global_rank == 0:
+                logger.info('DeepSpeed using client LR scheduler')
+            self.lr_scheduler = client_lr_scheduler
 
         log_dist(f'DeepSpeed LR Scheduler = {self.lr_scheduler}', ranks=[0])
 
     def _configure_checkpointing(self, dist_init_required):
 
-        dp_rank = self.global_rank
-        if self.mpu:
-            dp_rank = self.mpu.get_data_parallel_rank()
-
+        dp_rank = self.mpu.get_data_parallel_rank() if self.mpu else self.global_rank
         # only the first data parallel process needs to store the model checkpoint
         self.save_non_zero_checkpoint = (
             dp_rank == 0) or self.zero_optimization_partition_weights()
@@ -623,13 +616,12 @@ class DeepSpeedEngine(Module):
                 scheduler = getattr(lr_schedules, scheduler_name)
             else:
                 assert hasattr(torch.optim.lr_scheduler, scheduler_name), \
-                    f"DeepSpeed does not recognize LR scheduler {scheduler_name}"
+                        f"DeepSpeed does not recognize LR scheduler {scheduler_name}"
 
                 scheduler = getattr(torch.optim.lr_scheduler, scheduler_name)
 
             scheduler_params = self.scheduler_params()
-            instantiated_scheduler = scheduler(optimizer, **scheduler_params)
-            return instantiated_scheduler
+            return scheduler(optimizer, **scheduler_params)
         else:
             return None
 
@@ -681,22 +673,23 @@ class DeepSpeedEngine(Module):
             args.deepspeed_config = args.deepscale_config
 
         assert "LOCAL_RANK" in os.environ or "OMPI_COMM_WORLD_LOCAL_RANK" in os.environ, "DeepSpeed requires the LOCAL_RANK environment " \
-            "variable, it is set by the deepspeed launcher, deepspeed.init_distributed, or the torch.distributed launcher. If using a " \
-            "different launcher please ensure LOCAL_RANK is set prior to initializing deepspeed."
+                "variable, it is set by the deepspeed launcher, deepspeed.init_distributed, or the torch.distributed launcher. If using a " \
+                "different launcher please ensure LOCAL_RANK is set prior to initializing deepspeed."
 
         if hasattr(args, 'local_rank') and args.local_rank != None:
             assert isinstance(args.local_rank, int), f"args.local_rank of {args.local_rank} is an unknown type {type(args.local_rank)}"
             if args.local_rank >= 0:
                 env_local_rank = int(os.environ.get("LOCAL_RANK"))
                 assert env_local_rank == args.local_rank, \
-                    f"Mismatch in local rank setting, args.local_rank={args.local_rank} but env['LOCAL_RANK']={env_local_rank}."
+                        f"Mismatch in local rank setting, args.local_rank={args.local_rank} but env['LOCAL_RANK']={env_local_rank}."
 
         if self.config is None:
             assert hasattr(args, 'deepspeed_config') and args.deepspeed_config is not None, \
-                'DeepSpeed requires --deepspeed_config to specify configuration file'
+                    'DeepSpeed requires --deepspeed_config to specify configuration file'
 
-            assert os.path.isfile(args.deepspeed_config), \
-                'DeepSpeed configuration file: {} is not an existing file'.format(args.deepspeed_config)
+            assert os.path.isfile(
+                args.deepspeed_config
+            ), f'DeepSpeed configuration file: {args.deepspeed_config} is not an existing file'
 
     def _is_supported_optimizer(self, optimizer_name):
         return optimizer_name in DEEPSPEED_OPTIMIZERS or \
@@ -705,28 +698,26 @@ class DeepSpeedEngine(Module):
     # Validate configuration based on command line arguments
     def _do_sanity_check(self):
         assert isinstance(self.client_optimizer, (type(None), Optimizer, Callable)), \
-            f'Client Optimizer is of unexpected type {type(self.client_optimizer)}'
+                f'Client Optimizer is of unexpected type {type(self.client_optimizer)}'
 
-        if not self.client_optimizer:
-            if self.optimizer_name() is not None:
-                assert self._is_supported_optimizer(self.optimizer_name()), \
-                    '{} is not a supported DeepSpeed Optimizer'.format(self.optimizer_name())
+        if not self.client_optimizer and self.optimizer_name() is not None:
+            assert self._is_supported_optimizer(
+                self.optimizer_name()
+            ), f'{self.optimizer_name()} is not a supported DeepSpeed Optimizer'
 
-        if self.optimizer_name() == LAMB_OPTIMIZER or self.optimizer_name(
-        ) == ONEBIT_LAMB_OPTIMIZER:
-            assert self.dynamic_loss_scale(), \
-                'DeepSpeed {} optimizer requires dynamic loss scaling'.format(self.optimizer_name())
+        if self.optimizer_name() in [LAMB_OPTIMIZER, ONEBIT_LAMB_OPTIMIZER]:
+            assert (
+                self.dynamic_loss_scale()
+            ), f'DeepSpeed {self.optimizer_name()} optimizer requires dynamic loss scaling'
 
         # Detect invalid combinations of client optimizer and client scheduler
         if isinstance(self.client_lr_scheduler, _LRScheduler):
             assert isinstance(self.client_optimizer, Optimizer), \
-                f'Client Optimizer (type = {type(self.client_optimizer)} is not instantiated but Client LR Scheduler is instantiated'
+                    f'Client Optimizer (type = {type(self.client_optimizer)} is not instantiated but Client LR Scheduler is instantiated'
 
     def _broadcast_model(self):
         def is_replicated(p):
-            if hasattr(p, 'ds_status') and p.ds_status is not ZeroParamStatus.AVAILABLE:
-                return False
-            return True
+            return not hasattr(p, 'ds_status') or p.ds_status is ZeroParamStatus.AVAILABLE
 
         for p in self.module.parameters():
             if hasattr(p, 'allreduce') and not p.allreduce:

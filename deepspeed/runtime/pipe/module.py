@@ -52,10 +52,7 @@ class LayerSpec:
         if not issubclass(typename, nn.Module):
             raise RuntimeError('LayerSpec only supports torch.nn.Module types.')
 
-        if dist.is_initialized():
-            self.global_rank = dist.get_rank()
-        else:
-            self.global_rank = -1
+        self.global_rank = dist.get_rank() if dist.is_initialized() else -1
 
     def __repr__(self):
         return ds_utils.call_to_str(self.typename.__name__,
@@ -296,7 +293,7 @@ class PipelineModule(nn.Module):
             if typeregex.search(name):
                 idxs.append(idx)
 
-        if len(idxs) == 0:
+        if not idxs:
             raise RuntimeError(
                 f"Partitioning '{layername}' found no valid layers to partition.")
         return idxs
@@ -380,9 +377,8 @@ class PipelineModule(nn.Module):
             binary_weights = [0] * len(self._layer_specs)
             for idx in self._find_layer_type(layertype):
                 binary_weights[idx] = 1
-            else:
-                self.parts = ds_utils.partition_balanced(weights=binary_weights,
-                                                         num_parts=num_stages)
+            self.parts = ds_utils.partition_balanced(weights=binary_weights,
+                                                     num_parts=num_stages)
         elif method == 'profile':
             raise NotImplementedError(f'Partitioning method {method} not implemented.')
         else:
@@ -436,19 +432,19 @@ class PipelineModule(nn.Module):
             return tied_comms
 
         specs = self._layer_specs
-        tie_keys = set(s.key for s in specs if isinstance(s, TiedLayerSpec))
+        tie_keys = {s.key for s in specs if isinstance(s, TiedLayerSpec)}
         for key in tie_keys:
-            # Find the layers that the tied module appears in
-            tied_layers = []
-            for idx, layer in enumerate(specs):
-                if isinstance(layer, TiedLayerSpec) and layer.key == key:
-                    tied_layers.append(idx)
+            tied_layers = [
+                idx
+                for idx, layer in enumerate(specs)
+                if isinstance(layer, TiedLayerSpec) and layer.key == key
+            ]
             # Find all stages with this tied module
             # TODO: Would be nice to remove the nested data/model parallelism loops and
             # TODO: instead generalize in some way, since we really just care about the
             # TODO: stage that owns the tied layer. Then loop over each (dp, mp, ...)
             # TODO: fiber to generate process groups.
-            tied_stages = set(self.stage_owner(idx) for idx in tied_layers)
+            tied_stages = {self.stage_owner(idx) for idx in tied_layers}
             for dp in range(self._grid.data_parallel_size):
                 for mp in range(self._grid.get_slice_parallel_world_size()):
                     tied_ranks = []
@@ -532,8 +528,7 @@ class PipelineModule(nn.Module):
             rank = getattr(self._grid._topo.get_coord(rank=self.global_rank), dim)
             rank_name += f'-{dim}_{rank:02d}'
 
-        ckpt_name = os.path.join(checkpoints_path, str(tag), rank_name)
-        return ckpt_name
+        return os.path.join(checkpoints_path, str(tag), rank_name)
 
     def ckpt_layer_path(self, ckpt_dir, local_layer_idx):
         """Customize a prefix for a specific pipeline module layer. """

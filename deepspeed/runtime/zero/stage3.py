@@ -3,6 +3,7 @@
 Licensed under the MIT license.
 """
 
+
 import sys
 import os
 from collections import defaultdict, OrderedDict
@@ -31,7 +32,7 @@ from deepspeed.runtime.swap_tensor.pipelined_optimizer_swapper import PipelinedO
 # with gradient partitioning and without
 pg_correctness_test = False
 
-FWD_MODULE_STACK = list()
+FWD_MODULE_STACK = []
 from deepspeed.utils.debug import debug_module2name_id, debug_param2name_id, debug_param2name_id_numel, debug_param2name_id_shape_device, debug_module2name_class, printflock, log_rank_file
 
 
@@ -57,9 +58,8 @@ def split_half_float_double(tensors):
         "torch.cuda.DoubleTensor"
     ]
     buckets = []
-    for i, dtype in enumerate(dtypes):
-        bucket = [t for t in tensors if t.type() == dtype]
-        if bucket:
+    for dtype in dtypes:
+        if bucket := [t for t in tensors if t.type() == dtype]:
             buckets.append(bucket)
     return buckets
 
@@ -143,23 +143,21 @@ class ZeROOrderedDict(OrderedDict):
         if param is None:
             return param
 
-        if param.ds_status == ZeroParamStatus.NOT_AVAILABLE:
-            if self._parent_module._parameters._in_forward:
-                print_rank_0(f'Registering external parameter from getter {key}',
-                             force=False)
-                register_external_parameter(FWD_MODULE_STACK[-1], param)
-                param.all_gather()
+        if (
+            param.ds_status == ZeroParamStatus.NOT_AVAILABLE
+            and self._parent_module._parameters._in_forward
+        ):
+            print_rank_0(f'Registering external parameter from getter {key}',
+                         force=False)
+            register_external_parameter(FWD_MODULE_STACK[-1], param)
+            param.all_gather()
 
         return param
 
 
 def _inject_parameters(module, cls):
     for module in module.modules():
-        if cls == ZeROOrderedDict:
-            new_param = cls(parent_module=module)
-        else:
-            new_param = cls()
-
+        new_param = cls(parent_module=module) if cls == ZeROOrderedDict else cls()
         for key, param in module._parameters.items():
             new_param[key] = param
         module._parameters = new_param
@@ -330,7 +328,7 @@ class PartitionedParameterCoordinator(object):
     #swap in parameter partitions from nvme for those parameters that will be used
     # after the ones that are already being prefetched into full parameters
     def _prefetch_nvme_param_partitions(self, sub_module, params_in_flight):
-        numel_in_flight = sum([param.ds_tensor.ds_numel for param in params_in_flight])
+        numel_in_flight = sum(param.ds_tensor.ds_numel for param in params_in_flight)
         upcoming_param_list = self.prefetch_coordinator.get_params_to_prefetch(
             sub_module,
             numel=2 * numel_in_flight)
@@ -341,7 +339,7 @@ class PartitionedParameterCoordinator(object):
             if param.ds_tensor.status == PartitionedParamStatus.NOT_AVAILABLE:
                 swap_in_params.append(param)
 
-        if len(swap_in_params) > 0:
+        if swap_in_params:
             swap_in_params[0].nvme_swapper.swap_in(swap_in_params, async_op=True)
 
     # Pre fetches the parameters for sub_modules that comes after

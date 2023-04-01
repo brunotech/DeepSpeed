@@ -37,9 +37,8 @@ def split_half_float_double(tensors):
         "torch.cuda.DoubleTensor"
     ]
     buckets = []
-    for i, dtype in enumerate(dtypes):
-        bucket = [t for t in tensors if t.type() == dtype]
-        if bucket:
+    for dtype in dtypes:
+        if bucket := [t for t in tensors if t.type() == dtype]:
             buckets.append(bucket)
     return buckets
 
@@ -54,7 +53,7 @@ def lcm(x, y):
 
 
 def get_alignment_padding(tensor_list, alignment):
-    num_elements = sum([tensor.numel() for tensor in tensor_list])
+    num_elements = sum(tensor.numel() for tensor in tensor_list)
     remainder = num_elements % alignment
     return (alignment - remainder) if remainder else remainder
 

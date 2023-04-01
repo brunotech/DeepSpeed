@@ -183,12 +183,7 @@ class TiledLinear(torch.nn.Module):
             Any: The combined result of ``current_out`` and ``new_out``.
         """
 
-        if current_out is None:
-            #this clone is necessary to preserve auto grad
-            #there is some issue with inplace update for outputs that are views
-            return new_out.clone()
-        else:
-            return current_out + new_out
+        return new_out.clone() if current_out is None else current_out + new_out
 
     def _combine_output_splits(self, outputs):
         """Join the splits of the output into a single result.
@@ -260,11 +255,7 @@ class TiledLinearReturnBias(TiledLinear):
     """
     def _reduce_local_output(self, in_id, out_id, current_out, new_out):
         """Reduces output tensors, but not the returned bias. """
-        if current_out is not None:
-            old_tensor, old_bias = current_out
-        else:
-            old_tensor, old_bias = None, None
-
+        old_tensor, old_bias = current_out if current_out is not None else (None, None)
         assert isinstance(new_out, tuple)
         assert len(new_out) == 2
 
@@ -288,9 +279,5 @@ class TiledLinearReturnBias(TiledLinear):
 
         # stack biases if applicable
         biases = [o[1] for o in outputs if o[1] is not None]
-        if len(biases) > 0:
-            bias = super()._combine_output_splits(biases)
-        else:
-            bias = None
-
+        bias = super()._combine_output_splits(biases) if biases else None
         return tensor, bias

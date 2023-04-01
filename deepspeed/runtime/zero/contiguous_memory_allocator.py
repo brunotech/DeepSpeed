@@ -11,9 +11,7 @@ class ContiguousMemoryAllocator(object):
         self.buffer = torch.zeros(size, dtype=dtype, device=device)
 
         #address to contiguous size available
-        self.contiguous_sizes = {}
-
-        self.contiguous_sizes[0] = size
+        self.contiguous_sizes = {0: size}
 
         #tensor id to its address
         self.tensor_addresses = {}
@@ -77,7 +75,9 @@ class ContiguousMemoryAllocator(object):
 
         assert tensor_id in self.tensor_map.keys(), "No such tensor allocated by the allocator."
         assert tensor.numel() >= numel, "Assert tensor buffer does is not large enough"
-        assert not tensor_id in self.id_to_params.keys(), "This tensor has already been assigned to a param"
+        assert (
+            tensor_id not in self.id_to_params.keys()
+        ), "This tensor has already been assigned to a param"
 
         self.id_to_params[tensor_id] = [param]
 
@@ -119,9 +119,7 @@ class ContiguousMemoryAllocator(object):
             start = int(addr * resolution / total_size)
             end = int((addr + size) * resolution / total_size)
             empty.extend(range(start, end))
-        s = ''
-        for i in range(resolution):
-            s += '.' if i in empty else '|'
+        s = ''.join('.' if i in empty else '|' for i in range(resolution))
         print_rank_0(s)
 
     def max_allocated(self):
@@ -189,10 +187,10 @@ class ContiguousMemoryAllocator(object):
             tensor = self.tensor_map[self.tensor_ids[tensor_addr]]
 
             assert tensor_size == tensor.numel(), \
-                "Size mismatch. {tensor_size} is allocated at addr {tensor_addr} but tensor size is {tensor.numel()} "
+                    "Size mismatch. {tensor_size} is allocated at addr {tensor_addr} but tensor size is {tensor.numel()} "
 
             assert empty_addr != tensor_addr, \
-                f"Cannot have same empty address {empty_addr} and tensor address {tensor_addr}"
+                    f"Cannot have same empty address {empty_addr} and tensor address {tensor_addr}"
 
             if empty_addr < tensor_addr:
 
@@ -218,10 +216,7 @@ class ContiguousMemoryAllocator(object):
 
                 self._replace_old_address_with_new(tensor_id, empty_addr)
 
-                tensor_index += 1
-
-            else:
-                tensor_index += 1
+            tensor_index += 1
 
             empty_addresses = sorted(self.contiguous_sizes.keys())
 
@@ -269,7 +264,7 @@ class ContiguousMemoryAllocator(object):
 
     def _largest_contiguous(self):
         if len(self.contiguous_sizes) > 0:
-            return max([size for _, size in self.contiguous_sizes.items()])
+            return max(size for _, size in self.contiguous_sizes.items())
         else:
             return 0
 

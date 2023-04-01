@@ -79,7 +79,7 @@ class PipelineEngine(DeepSpeedEngine):
         self.pipeline_enable_backward_allreduce = True
 
         assert not self.elasticity_enabled(), "Elasticity is not currently supported" \
-            " with pipeline parallelism."
+                " with pipeline parallelism."
 
         # pipeline step for logging
         self.log_batch_step_id = -1
@@ -97,7 +97,7 @@ class PipelineEngine(DeepSpeedEngine):
 
         assert self.dp_world_size == self.grid.data_parallel_size
         assert self.train_batch_size() == \
-            self.micro_batch_size * self.micro_batches * self.grid.data_parallel_size
+                self.micro_batch_size * self.micro_batches * self.grid.data_parallel_size
 
         #  Set Stage Inf
         self.num_stages = self.grid.pipe_parallel_size
@@ -132,14 +132,15 @@ class PipelineEngine(DeepSpeedEngine):
         self.is_grad_partitioned = self.is_model_parallel
 
         model_parameters = filter(lambda p: p.requires_grad, self.module.parameters())
-        num_params = sum([p.numel() for p in model_parameters])
+        num_params = sum(p.numel() for p in model_parameters)
         unique_params = num_params
         # Subtract tied parameters if we don't own them
         if self.module.tied_comms:
-            tied_params = 0
-            for key, d in self.module.tied_comms.items():
-                if self.global_rank != min(d['ranks']):
-                    tied_params += sum(p.numel() for p in d['module'].parameters())
+            tied_params = sum(
+                sum(p.numel() for p in d['module'].parameters())
+                for key, d in self.module.tied_comms.items()
+                if self.global_rank != min(d['ranks'])
+            )
             unique_params -= tied_params
         params_tensor = torch.LongTensor(data=[num_params,
                                                unique_params]).to(self.device)
@@ -301,17 +302,18 @@ class PipelineEngine(DeepSpeedEngine):
         """
         if not torch._C.is_grad_enabled():
             raise RuntimeError(
-                f'train_batch() requires gradients enabled. Use eval_batch() instead.')
+                'train_batch() requires gradients enabled. Use eval_batch() instead.'
+            )
 
         # Curriculum learning could change activation shape
         if self.curriculum_enabled():
             new_difficulty = self.curriculum_scheduler.update_difficulty( \
-                self.global_steps + 1)
+                    self.global_steps + 1)
             if self.global_steps == 0 or self.curriculum_scheduler.first_step:
                 self.reset_activation_shape()
                 self.curriculum_scheduler.first_step = False
             elif new_difficulty != self.curriculum_scheduler.get_difficulty( \
-                self.global_steps):
+                    self.global_steps):
                 self.reset_activation_shape()
 
         if data_iter:
@@ -331,26 +333,31 @@ class PipelineEngine(DeepSpeedEngine):
 
         self.timers('train_batch').stop()
 
-        if self.global_steps % self.steps_per_print() == 0:
-            if self.global_rank == 0:
-                elapsed = self.timers('train_batch').elapsed(reset=True)
-                iter_time = elapsed / self.steps_per_print()
-                tput = self.train_batch_size() / iter_time
-                print(f'steps: {self.global_steps} '
-                      f'loss: {self.agg_train_loss:0.4f} '
-                      f'iter time (s): {iter_time:0.3f} '
-                      f'samples/sec: {tput:0.3f}')
+        if (
+            self.global_steps % self.steps_per_print() == 0
+            and self.global_rank == 0
+        ):
+            elapsed = self.timers('train_batch').elapsed(reset=True)
+            iter_time = elapsed / self.steps_per_print()
+            tput = self.train_batch_size() / iter_time
+            print(f'steps: {self.global_steps} '
+                  f'loss: {self.agg_train_loss:0.4f} '
+                  f'iter time (s): {iter_time:0.3f} '
+                  f'samples/sec: {tput:0.3f}')
 
         # Tensorboard
-        if self.tensorboard_enabled():
-            if self.global_rank == 0:
-                self.summary_events = [(f'Train/Samples/train_loss',
-                                        self.agg_train_loss.mean().item(),
-                                        self.global_samples)]
-                for event in self.summary_events:  # write_summary_events
-                    self.summary_writer.add_scalar(event[0], event[1], event[2])
-                if self.global_steps % self.steps_per_print() == 0:
-                    self.summary_writer.flush()
+        if self.tensorboard_enabled() and self.global_rank == 0:
+            self.summary_events = [
+                (
+                    'Train/Samples/train_loss',
+                    self.agg_train_loss.mean().item(),
+                    self.global_samples,
+                )
+            ]
+            for event in self.summary_events:  # write_summary_events
+                self.summary_writer.add_scalar(event[0], event[1], event[2])
+            if self.global_steps % self.steps_per_print() == 0:
+                self.summary_writer.flush()
 
         if self.wall_clock_breakdown(
         ) and self.global_steps % self.steps_per_print() == 0:
@@ -397,12 +404,12 @@ class PipelineEngine(DeepSpeedEngine):
         # Curriculum learning could change activation shape
         if self.curriculum_enabled():
             new_difficulty = self.curriculum_scheduler.update_difficulty( \
-                self.global_steps + 1)
+                    self.global_steps + 1)
             if self.global_steps == 0 or self.curriculum_scheduler.first_step:
                 self.reset_activation_shape()
                 self.curriculum_scheduler.first_step = False
             elif new_difficulty != self.curriculum_scheduler.get_difficulty( \
-                self.global_steps):
+                    self.global_steps):
                 self.reset_activation_shape()
 
         eval_output = None
@@ -426,14 +433,17 @@ class PipelineEngine(DeepSpeedEngine):
         if compute_loss:
             eval_output = self._bcast_pipe_scalar(eval_output)
 
-        if self.tensorboard_enabled():
-            if self.global_rank == 0:
-                self.summary_events = [(f'Train/Samples/eval_loss',
-                                        eval_output.mean().item(),
-                                        self.global_samples)]
-                for event in self.summary_events:  # write_summary_events
-                    self.summary_writer.add_scalar(event[0], event[1], event[2])
-                self.summary_writer.flush()
+        if self.tensorboard_enabled() and self.global_rank == 0:
+            self.summary_events = [
+                (
+                    'Train/Samples/eval_loss',
+                    eval_output.mean().item(),
+                    self.global_samples,
+                )
+            ]
+            for event in self.summary_events:  # write_summary_events
+                self.summary_writer.add_scalar(event[0], event[1], event[2])
+            self.summary_writer.flush()
 
         # Restore the training iterator
         self.set_dataiterator(train_iterator)
@@ -468,33 +478,32 @@ class PipelineEngine(DeepSpeedEngine):
         if reduce is None:
             return outputs
 
-        if reduce.lower() == 'avg':
-            # first sum over all microbatches
-            if torch.is_tensor(outputs[0]):
-                reduced = sum(outputs)
-            else:
-                assert isinstance(outputs, (list, tuple))
-                reduced = [torch.zeros_like(o) for o in outputs[0]]
-                for idx, out in outputs:
-                    reduced[idx] += out
-
-            # Average over the microbatches
-            reduced = self._scale_loss_by_gas(reduced)
-
-            # Average over DP groups
-            if reduce_dp and self.is_data_parallel:
-                if torch.is_tensor(reduced):
-                    dist.all_reduce(reduced, group=self.mpu.get_data_parallel_group())
-                    reduced /= self.dp_world_size
-                else:
-                    for idx in range(len(reduced)):
-                        dist.all_reduce(reduced[idx],
-                                        group=self.mpu.get_data_parallel_group())
-                        reduced[idx] /= self.dp_world_size
-
-            return reduced
-        else:
+        if reduce.lower() != 'avg':
             raise NotImplementedError(f'reduction type {reduce} not supported.')
+        # first sum over all microbatches
+        if torch.is_tensor(outputs[0]):
+            reduced = sum(outputs)
+        else:
+            assert isinstance(outputs, (list, tuple))
+            reduced = [torch.zeros_like(o) for o in outputs[0]]
+            for idx, out in outputs:
+                reduced[idx] += out
+
+        # Average over the microbatches
+        reduced = self._scale_loss_by_gas(reduced)
+
+        # Average over DP groups
+        if reduce_dp and self.is_data_parallel:
+            if torch.is_tensor(reduced):
+                dist.all_reduce(reduced, group=self.mpu.get_data_parallel_group())
+                reduced /= self.dp_world_size
+            else:
+                for idx in range(len(reduced)):
+                    dist.all_reduce(reduced[idx],
+                                    group=self.mpu.get_data_parallel_group())
+                    reduced[idx] /= self.dp_world_size
+
+        return reduced
 
     def _bcast_pipe_scalar(self, data, src_rank=None, dtype=torch.float32):
         # Default to last stage (e.g., for broadcasting loss)
@@ -572,28 +581,26 @@ class PipelineEngine(DeepSpeedEngine):
         return self._force_grad_boundary
 
     def log_for_device(self, *msg):
-        if LOG_STAGE == self.stage_id or LOG_STAGE == -1:
-            if DATA_PARALLEL_ID == self.grid.data_parallel_id or DATA_PARALLEL_ID == -1:
-                print(
-                    f'RANK={dist.get_rank()} '
-                    f'PIPE-ID={self.stage_id} '
-                    f'DATA-ID={self.grid.data_parallel_id} '
-                    f'MBATCH-ID={self.microbatch_id} '
-                    f'STEP-ID={self.log_batch_step_id} '
-                    '::',
-                    *msg,
-                    flush=True)
+        if LOG_STAGE in [self.stage_id, -1] and DATA_PARALLEL_ID in [
+            self.grid.data_parallel_id,
+            -1,
+        ]:
+            print(
+                f'RANK={dist.get_rank()} '
+                f'PIPE-ID={self.stage_id} '
+                f'DATA-ID={self.grid.data_parallel_id} '
+                f'MBATCH-ID={self.microbatch_id} '
+                f'STEP-ID={self.log_batch_step_id} '
+                '::',
+                *msg,
+                flush=True)
 
     def tput_log(self, *msg):
         if self.global_rank == 0 and self.global_steps % self.steps_per_print() == 0:
             print(*msg)
 
     def _next_batch(self):
-        # If using 3D parallelism, only some first-stage ranks may do IO
-        batch = None
-        if self.data_iterator is not None:
-            batch = next(self.data_iterator)
-
+        batch = next(self.data_iterator) if self.data_iterator is not None else None
         # Any post-processing, like broadcasting across a slice-parallel group.
         if self.batch_fn:
             batch = self.batch_fn(batch)

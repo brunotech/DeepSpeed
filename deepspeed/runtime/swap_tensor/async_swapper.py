@@ -34,14 +34,14 @@ class AsyncTensorSwapper(object):
 
     def add_buffers(self, buffer_list):
         assert len(self.all_buffers) == 0
-        assert all([buffer.is_pinned() for buffer in buffer_list])
+        assert all(buffer.is_pinned() for buffer in buffer_list)
         dtype = buffer_list[0].dtype
-        assert all([buffer.dtype == dtype for buffer in buffer_list])
+        assert all(buffer.dtype == dtype for buffer in buffer_list)
 
         self.dtype = dtype
         self.all_buffers = [SwapBuffer(buffer) for buffer in buffer_list]
-        self.free_buffer_index += [i for i in range(len(self.all_buffers))]
-        self.max_numel = max([buffer.numel() for buffer in buffer_list])
+        self.free_buffer_index += list(range(len(self.all_buffers)))
+        self.max_numel = max(buffer.numel() for buffer in buffer_list)
         self.timer_names = set()
 
     def get_timer_names(self):

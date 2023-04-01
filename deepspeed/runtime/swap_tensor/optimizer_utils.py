@@ -65,7 +65,7 @@ class OptimizerStateSwapInfo(object):
     def get_or_create_gradient_paths(self, offsets, lengths):
         gradient_paths = []
         for offset, length in zip(offsets, lengths):
-            if not offset in self.swapped_gradients.keys():
+            if offset not in self.swapped_gradients.keys():
                 path = os.path.join(
                     self.swap_folder,
                     f'{self.param_id}_gradient_{offset}_{length}.tensor.swp')
@@ -197,7 +197,7 @@ class OptimizerSwapper(object):
                             gradient_offsets,
                             gradient_tensors,
                             gradient_swapper):
-        if not id(parameter) in self.swap_params_info.keys():
+        if id(parameter) not in self.swap_params_info.keys():
             return
 
         swap_info = self.swap_params_info[id(parameter)]
@@ -221,7 +221,7 @@ class OptimizerSwapper(object):
             swappable_offsets.append(offset)
             swappable_lengths.append(tensor.numel())
 
-        if len(swappable_tensors) > 0:
+        if swappable_tensors:
             if not gradient_swapper.has_buffers():
                 pinned_buffers = self.swap_buffer_manager.allocate_all(
                     num_elems=self.largest_numel,
@@ -247,7 +247,7 @@ class OptimizerSwapper(object):
                                              fp32_parameters):
         assert len(fp32_parameters) == len(fp16_partitions_info)
         assert len(fp32_parameters) == len(fp16_num_elems)
-        assert all([buffer.is_pinned() for buffer in fp16_pinned_buffers])
+        assert all(buffer.is_pinned() for buffer in fp16_pinned_buffers)
 
         fp32_swap_paths = self._get_swap_paths(parameters=fp32_parameters,
                                                num_elems=fp16_num_elems)
@@ -257,8 +257,9 @@ class OptimizerSwapper(object):
             dtype=self.dtype)
 
         fp16_buffer_numel = [buf.numel() for buf in fp16_pinned_buffers]
-        assert all([numel >= self.largest_numel for numel in fp16_buffer_numel]), \
-        f"numel of fp16 buffers {fp16_buffer_numel} is too small for initializing fp32 params {self.largest_numel}"
+        assert all(
+            numel >= self.largest_numel for numel in fp16_buffer_numel
+        ), f"numel of fp16 buffers {fp16_buffer_numel} is too small for initializing fp32 params {self.largest_numel}"
 
         fp32_swap_buffers = SwapBufferPool(fp32_pinned_buffers)
         fp16_swap_buffers = SwapBufferPool(fp16_pinned_buffers)
@@ -284,7 +285,7 @@ class OptimizerSwapper(object):
                 fp32_swap_buffers=fp32_swap_buffers,
                 fp16_pinned_tensors=fp16_pinned_tensors)
             assert swap_out_count == len(fp16_pinned_tensors), \
-            f"{swap_out_count} does not match {len(fp16_pinned_tensors)}"
+                f"{swap_out_count} does not match {len(fp16_pinned_tensors)}"
 
             fp16_swap_buffers.reset()
             fp32_swap_buffers.reset()
@@ -391,12 +392,11 @@ class OptimizerSwapper(object):
         swap_info_list = [
             self._create_param_swap_info(parameter=p,
                                          numel=numel) \
-            for p, numel in zip(parameters, num_elems)
+                for p, numel in zip(parameters, num_elems)
         ]
         assert len(swap_info_list) == len(num_elems)
 
-        swap_paths = [info.swap_paths[0] for info in swap_info_list]
-        return swap_paths
+        return [info.swap_paths[0] for info in swap_info_list]
 
     def _swap_out_unpinned_tensors(self,
                                    aio_handle,
@@ -470,25 +470,23 @@ class OptimizerSwapper(object):
             )
 
     def _get_state_tensors(self, parameter):
-        if not parameter in self.optimizer.state:
+        if parameter not in self.optimizer.state:
             return []
 
-        tensor_list = []
-        for value in self.optimizer.state[parameter].values():
-            if torch.is_tensor(value):
-                tensor_list.append(value)
-
-        return tensor_list
+        return [
+            value
+            for value in self.optimizer.state[parameter].values()
+            if torch.is_tensor(value)
+        ]
 
     def _update_param_state_info(self, swap_info, parameter):
-        if not swap_info.has_state_tensors:
-            state_tensors = self._get_state_tensors(parameter)
-            if state_tensors:
+        if state_tensors := self._get_state_tensors(parameter):
+            if not swap_info.has_state_tensors:
                 swap_info.add_state_tensors(state_tensors)
 
     def _create_param_swap_info(self, parameter, numel):
         param_id = id(parameter)
-        assert not param_id in self.swap_params_info
+        assert param_id not in self.swap_params_info
 
         self.swap_params_info[param_id] = OptimizerStateSwapInfo(
             parameter=parameter,

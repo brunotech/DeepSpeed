@@ -125,10 +125,10 @@ class PartitionedOptimizerSwapper(OptimizerSwapper):
 
         self._start_timer(SWAP_OUT_PARAM_TIMER)
         pinned_tensors, pinned_paths, unpinned_tensors, unpinned_paths = self._separate_pinned_tensors(swap_info)
-        swap_bytes = sum([
+        swap_bytes = sum(
             self._io_aligned_numel(t.numel()) * t.element_size()
             for t in swap_info.tensors
-        ])
+        )
 
         WRITE_TIMER = 'swap_submit_write'
         self._start_timer(WRITE_TIMER)
@@ -188,7 +188,8 @@ class PartitionedOptimizerSwapper(OptimizerSwapper):
         self._stop_timer(READ_TIMER)
 
         swap_bytes = sum(
-            [buffer.numel() * buffer.element_size() for buffer in swap_buffers])
+            buffer.numel() * buffer.element_size() for buffer in swap_buffers
+        )
 
         self._start_timer(WAIT_TIMER)
         aio_handle.wait()

@@ -60,10 +60,9 @@ def send(tensor, dest_stage, async_op=False):
 
         if can_send_recv():
             return dist.send(tensor, dest_rank)
-        else:
-            group = _get_send_recv_group(src_stage, dest_stage)
-            src_rank = _grid.stage_to_global(stage_id=src_stage)
-            return dist.broadcast(tensor, src_rank, group=group, async_op=async_op)
+        group = _get_send_recv_group(src_stage, dest_stage)
+        src_rank = _grid.stage_to_global(stage_id=src_stage)
+        return dist.broadcast(tensor, src_rank, group=group, async_op=async_op)
 
 
 def recv(tensor, src_stage, async_op=False):
@@ -81,9 +80,8 @@ def recv(tensor, src_stage, async_op=False):
     else:
         if can_send_recv():
             return dist.recv(tensor, src_rank)
-        else:
-            group = _get_send_recv_group(src_stage, dest_stage)
-            return dist.broadcast(tensor, src_rank, group=group, async_op=async_op)
+        group = _get_send_recv_group(src_stage, dest_stage)
+        return dist.broadcast(tensor, src_rank, group=group, async_op=async_op)
 
 
 def wait():
@@ -148,7 +146,7 @@ def recv_obj(sender: int) -> typing.Any:
             return ret
         # handle kwargs
         if isinstance(x, dict):
-            ret = dict()
+            ret = {}
             for key, val in x.items():
                 ret[_to(key)] = _to(val)
             return ret

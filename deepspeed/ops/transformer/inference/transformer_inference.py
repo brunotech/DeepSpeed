@@ -145,23 +145,18 @@ class DeepSpeedSelfAttentionFunction(Function):
             new_x_shape = x.size()[:-1] + (num_attention_heads_per_partition,
                                            attention_head_size)
             x_1 = x.view(*new_x_shape)
-            if key:
-                x_1 = x_1.permute(0, 2, 3, 1)
-            else:
-                x_1 = x_1.permute(0, 2, 1, 3)
-            if reshape:
-                return x_1.reshape(x.shape)
-            return x_1
+            x_1 = x_1.permute(0, 2, 3, 1) if key else x_1.permute(0, 2, 1, 3)
+            return x_1.reshape(x.shape) if reshape else x_1
 
         def _transpose_for_context(x):
             x = x.permute(0, 2, 1, 3).contiguous()
             new_x_layer_shape = x.size()[:-2] + \
-                                      (hidden_size_per_partition,)
+                                          (hidden_size_per_partition,)
             return x.view(*new_x_layer_shape)
 
         def compute_attention(qkv_out, input_mask):
             score_context_func = inference_cuda_module.softmax_context_fp32 if (not config.fp16 or not config.triangular_masking) else \
-                                    inference_cuda_module.softmax_context_fp16
+                                        inference_cuda_module.softmax_context_fp16
             if not config.triangular_masking:
                 qkv_out = qkv_out.float()
 
@@ -191,7 +186,7 @@ class DeepSpeedSelfAttentionFunction(Function):
             head_size = (mixed_query.shape[-1] // num_attention_heads_per_partition)
 
             unfused_mode = not config.specialized_mode or \
-                                mixed_query.shape[1] >= 32 or head_size > 128
+                                    mixed_query.shape[1] >= 32 or head_size > 128
 
             if layer_past is not None:
                 past_key, past_value = layer_past
@@ -261,15 +256,15 @@ class DeepSpeedSelfAttentionFunction(Function):
 
         def selfAttention_fp():
             vector_matmul_func = inference_cuda_module.vector_matmul_fp16 if config.fp16 else \
-                                    inference_cuda_module.vector_matmul_fp32
+                                        inference_cuda_module.vector_matmul_fp32
             if not config.pre_layer_norm:
                 linear_func = inference_cuda_module.linear_layer_fp16 if config.fp16 else \
-                                    inference_cuda_module.linear_layer_fp32
+                                        inference_cuda_module.linear_layer_fp32
 
                 qkv_out = linear_func(input, attn_qkvw, attn_qkvb)
             else:
                 qkv_func = inference_cuda_module.qkv_gemm_fp16 if config.fp16 else \
-                                    inference_cuda_module.qkv_gemm_fp32
+                                        inference_cuda_module.qkv_gemm_fp32
                 qkv_out = qkv_func(input,
                                    attn_qkvw,
                                    (attn_qkvb if attn_qkvb is not None else norm_b),
@@ -283,15 +278,8 @@ class DeepSpeedSelfAttentionFunction(Function):
             return output, key_layer, value_layer, context_layer
 
         def selfAttention_int8():
-            if not config.pre_layer_norm:
-                qkv_out = inference_cuda_module.linear_layer_int8(
-                    input,
-                    attn_qkvw,
-                    attn_qkvb,
-                    q_scales[0],
-                    (q_groups * (3 if qkv_merging else 1) * (2**merge_count)))
-            else:
-                qkv_out = inference_cuda_module.qkv_gemm_int8(
+            qkv_out = (
+                inference_cuda_module.qkv_gemm_int8(
                     input,
                     attn_qkvw,
                     attn_qkvb,
@@ -300,7 +288,17 @@ class DeepSpeedSelfAttentionFunction(Function):
                     config.epsilon,
                     q_scales[0],
                     (q_groups * (3 if qkv_merging else 1) * (2**merge_count)),
-                    (attn_qkvb is not None))
+                    (attn_qkvb is not None),
+                )
+                if config.pre_layer_norm
+                else inference_cuda_module.linear_layer_int8(
+                    input,
+                    attn_qkvw,
+                    attn_qkvb,
+                    q_scales[0],
+                    (q_groups * (3 if qkv_merging else 1) * (2**merge_count)),
+                )
+            )
             context_layer, key_layer, value_layer = compute_attention(qkv_out)
             output = inference_cuda_module.vector_matmul_int8(context_layer,
                                                               attn_ow,
@@ -374,7 +372,7 @@ class DeepSpeedSelfAttention(nn.Module):
                 output_attentions=False,
                 norm_w=None,
                 norm_b=None):
-        output = DeepSpeedSelfAttentionFunction.apply(
+        return DeepSpeedSelfAttentionFunction.apply(
             input,
             input_mask,
             head_mask,
@@ -397,9 +395,8 @@ class DeepSpeedSelfAttention(nn.Module):
             self.q_scales,
             self.q_groups,
             self.merge_count,
-            self.qkv_merging)
-
-        return output
+            self.qkv_merging,
+        )
 
 
 class DeepSpeedMLPFunction(Function):
@@ -606,7 +603,7 @@ class DeepSpeedTransformerInference(nn.Module):
         input_type = input.dtype
 
         if (self.config.fp16 or self.config.q_int8) \
-            and input.dtype == torch.float:
+                and input.dtype == torch.float:
             input = input.half()
 
         with torch.no_grad():
@@ -632,7 +629,7 @@ class DeepSpeedTransformerInference(nn.Module):
 
             if not self.config.pre_layer_norm:
                 ds_layernorm = inference_cuda_module.layer_norm_fp16 if self.config.fp16 or self.config.q_int8 else \
-                                        inference_cuda_module.layer_norm_fp32
+                                            inference_cuda_module.layer_norm_fp32
                 output = ds_layernorm(output,
                                       self.norm_w,
                                       self.norm_b,
@@ -644,7 +641,4 @@ class DeepSpeedTransformerInference(nn.Module):
         if get_present:
             output = (output, presents)
 
-        if self.config.encoder_decoder:
-            return (output, )
-        else:
-            return output
+        return (output, ) if self.config.encoder_decoder else output

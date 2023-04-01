@@ -40,7 +40,6 @@ class LinearFunctionForZeroStage3(torch.autograd.Function):
     # Note that both forward and backward are @staticmethods
     @staticmethod
     @autocast_custom_fwd
-    # bias is an optional argument
     def forward(ctx, input, weight, bias=None):
         #print("In ZeRO Linear Function")
 
@@ -55,14 +54,11 @@ class LinearFunctionForZeroStage3(torch.autograd.Function):
 
         if input.dim() == 2 and bias is not None:
             # fused op is marginally faster
-            ret = torch.addmm(bias, input, weight.t())
-        else:
-            output = input.matmul(weight.t())
-            if bias is not None:
-                output += bias
-            ret = output
-
-        return ret
+            return torch.addmm(bias, input, weight.t())
+        output = input.matmul(weight.t())
+        if bias is not None:
+            output += bias
+        return output
 
     # This function has only a single output, so it gets only one gradient
     @staticmethod
@@ -173,7 +169,4 @@ class LinearModuleForZeroStage3(Module):
         return LinearFunctionForZeroStage3.apply(input, self.weight, self.bias)
 
     def extra_repr(self) -> str:
-        return 'in_features={}, out_features={}, bias={}'.format(
-            self.in_features,
-            self.out_features,
-            self.bias is not None)
+        return f'in_features={self.in_features}, out_features={self.out_features}, bias={self.bias is not None}'

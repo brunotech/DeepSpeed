@@ -43,8 +43,7 @@ def init_distributed(dist_backend="nccl",
 
     if not torch.distributed.is_initialized():
         if verbose:
-            logger.info(
-                "Initializing torch distributed with backend: {}".format(dist_backend))
+            logger.info(f"Initializing torch distributed with backend: {dist_backend}")
         assert isinstance(timeout, timedelta)
         torch.distributed.init_process_group(backend=dist_backend,
                                              timeout=timeout,
@@ -71,7 +70,7 @@ def mpi_discovery(distributed_port=TORCH_DISTRIBUTED_DEFAULT_PORT, verbose=True)
     # Determine local rank by assuming hostnames are unique
     proc_name = MPI.Get_processor_name()
     all_procs = comm.allgather(proc_name)
-    local_rank = sum([i == proc_name for i in all_procs[:rank]])
+    local_rank = sum(i == proc_name for i in all_procs[:rank])
 
     os.environ['RANK'] = str(rank)
     os.environ['WORLD_SIZE'] = str(world_size)
@@ -81,18 +80,16 @@ def mpi_discovery(distributed_port=TORCH_DISTRIBUTED_DEFAULT_PORT, verbose=True)
 
     if verbose:
         logger.info(
-            "Discovered MPI settings of world_rank={}, local_rank={}, world_size={}, master_addr={}, master_port={}"
-            .format(os.environ['RANK'],
-                    os.environ['LOCAL_RANK'],
-                    os.environ['WORLD_SIZE'],
-                    os.environ['MASTER_ADDR'],
-                    os.environ['MASTER_PORT']))
+            f"Discovered MPI settings of world_rank={os.environ['RANK']}, local_rank={os.environ['LOCAL_RANK']}, world_size={os.environ['WORLD_SIZE']}, master_addr={os.environ['MASTER_ADDR']}, master_port={os.environ['MASTER_PORT']}"
+        )
 
     if torch.distributed.is_initialized():
-        assert torch.distributed.get_rank() == rank, "MPI rank {} does not match torch rank {}".format(
-            rank, torch.distributed.get_rank())
-        assert torch.distributed.get_world_size() == world_size, "MPI world size {} does not match torch world size {}".format(
-            world_size, torch.distributed.get_world_size())
+        assert (
+            torch.distributed.get_rank() == rank
+        ), f"MPI rank {rank} does not match torch rank {torch.distributed.get_rank()}"
+        assert (
+            torch.distributed.get_world_size() == world_size
+        ), f"MPI world size {world_size} does not match torch world size {torch.distributed.get_world_size()}"
 
 
 def in_aml():
@@ -126,17 +123,14 @@ def patch_aml_env_for_torch_nccl_backend(master_port=6105, verbose=True):
         os.environ["MASTER_PORT"] = "54965"
 
     if verbose:
-        logger.info("NCCL_SOCKET_IFNAME original value = {}".format(
-            os.environ["NCCL_SOCKET_IFNAME"]))
+        logger.info(
+            f'NCCL_SOCKET_IFNAME original value = {os.environ["NCCL_SOCKET_IFNAME"]}'
+        )
 
     os.environ["NCCL_SOCKET_IFNAME"] = "^docker0,lo"
     os.environ['LOCAL_RANK'] = os.environ["OMPI_COMM_WORLD_LOCAL_RANK"]
 
     if verbose:
         logger.info(
-            "Discovered AzureML settings of world_rank={}, local_rank={}, world_size={}, master_addr={}, master_port={}"
-            .format(os.environ['RANK'],
-                    os.environ['LOCAL_RANK'],
-                    os.environ['WORLD_SIZE'],
-                    os.environ['MASTER_ADDR'],
-                    os.environ['MASTER_PORT']))
+            f"Discovered AzureML settings of world_rank={os.environ['RANK']}, local_rank={os.environ['LOCAL_RANK']}, world_size={os.environ['WORLD_SIZE']}, master_addr={os.environ['MASTER_ADDR']}, master_port={os.environ['MASTER_PORT']}"
+        )

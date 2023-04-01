@@ -27,11 +27,11 @@ def swap_out_tensors(swap_handle, tensor_buffers, swap_paths):
 
 
 def print_object(obj, name, exclude_list=[]):
-    logger.info('{}:'.format(name))
+    logger.info(f'{name}:')
     for arg in sorted(vars(obj)):
-        if not arg in exclude_list:
+        if arg not in exclude_list:
             dots = '.' * (29 - len(arg))
-            logger.info('  {} {} {}'.format(arg, dots, getattr(obj, arg)))
+            logger.info(f'  {arg} {dots} {getattr(obj, arg)}')
 
 
 class SwapBuffer(object):
@@ -53,7 +53,7 @@ class SwapBuffer(object):
 
     def allocate_tensor(self, swap_path, numel, aligned_numel):
         assert self.has_space(aligned_numel)
-        assert not self.offset in self.swap_tensors
+        assert self.offset not in self.swap_tensors
 
         allocate_offset = self.offset
         swap_tensor = self.buffer.narrow(0, allocate_offset, aligned_numel)
@@ -71,13 +71,13 @@ class SwapBuffer(object):
         return (self.offset + numel) <= self.buffer.numel()
 
     def get_swap_tensors(self):
-        return [tensor for tensor in self.swap_tensors.values()]
+        return list(self.swap_tensors.values())
 
     def get_swap_paths(self):
-        return [path for path in self.swap_paths.values()]
+        return list(self.swap_paths.values())
 
     def get_compute_tensors(self):
-        return [tensor for tensor in self.compute_tensors.values()]
+        return list(self.compute_tensors.values())
 
     def get_num_elem(self):
         return self.num_elem
@@ -94,7 +94,7 @@ class SwapBuffer(object):
 
 class SwapBufferPool(object):
     def __init__(self, buffers):
-        assert all([buf.is_pinned() for buf in buffers])
+        assert all(buf.is_pinned() for buf in buffers)
         self.buffers = [SwapBuffer(buf) for buf in buffers]
         self.current_index = 0
 
@@ -151,7 +151,7 @@ class SwapBufferPool(object):
     def swap_out(self, aio_handle, async_op=False):
         swap_tensors = self.get_swap_tensors()
         swap_paths = self.get_swap_paths()
-        assert all([p is not None for p in swap_paths])
+        assert all(p is not None for p in swap_paths)
 
         swap_out_tensors(aio_handle, swap_tensors, swap_paths)
 
@@ -161,7 +161,7 @@ class SwapBufferPool(object):
     def swap_in(self, aio_handle, async_op=False):
         swap_tensors = self.get_swap_tensors()
         swap_paths = self.get_swap_paths()
-        assert all([p is not None for p in swap_paths])
+        assert all(p is not None for p in swap_paths)
 
         swap_in_tensors(aio_handle, swap_tensors, swap_paths)
 
@@ -185,7 +185,7 @@ class SwapBufferManager(object):
                         device='cpu',
                         dtype=dtype).pin_memory() for _ in range(count)
         ]
-        self.free_buffer_index = [i for i in range(count)]
+        self.free_buffer_index = list(range(count))
         self.used_buffer_index = {}
         self.gigabytes = (self.all_buffers[0].element_size() * num_elems * count) / (1024
                                                                                      **3)
@@ -216,11 +216,8 @@ class SwapBufferManager(object):
                              dtype=dtype)
 
     def free(self, buffers):
-        buffer_ids = []
-        for buf in buffers:
-            buffer_ids.append(id(buf))
-
-        assert all([b_id in self.used_buffer_index for b_id in buffer_ids])
+        buffer_ids = [id(buf) for buf in buffers]
+        assert all(b_id in self.used_buffer_index for b_id in buffer_ids)
 
         for b_id in buffer_ids:
             self.free_buffer_index.append(self.used_buffer_index[b_id])
@@ -234,8 +231,7 @@ def get_sized_buffer(buffer, num_elems):
 
 
 def get_sized_buffers(buffer_list, num_elems_list):
-    swap_buffers = [
-        get_sized_buffer(buffer, num_elems) \
+    return [
+        get_sized_buffer(buffer, num_elems)
         for buffer, num_elems in zip(buffer_list, num_elems_list)
     ]
-    return swap_buffers

@@ -107,9 +107,7 @@ class ProcessTopology:
             >>> X.get_dim('y')
             3
         """
-        if axis not in self.axes:
-            return 0
-        return self.dims[self.axes.index(axis)]
+        return 0 if axis not in self.axes else self.dims[self.axes.index(axis)]
 
     def get_coord(self, rank):
         """Return the coordinate owned by a process rank.
@@ -207,8 +205,7 @@ class ProcessTopology:
         # This could be faster by generating the desired keys directly instead of
         # filtering.
         axis_num = self.axes.index(axis)
-        ranks = [self.mapping[k] for k in self.mapping.keys() if k[axis_num] == idx]
-        return ranks
+        return [self.mapping[k] for k in self.mapping.keys() if k[axis_num] == idx]
 
     def world_size(self):
         return len(self.mapping)
@@ -303,9 +300,6 @@ class PipelineParallelGrid:
         self.ds_model_rank = -1
         for dp in range(self.data_parallel_size):
             ranks = sorted(self._topo.get_axis_list(axis='data', idx=dp))
-            if self.global_rank == 0:
-                #print(f'RANK={self.global_rank} building DeepSpeed model group: {ranks}')
-                pass
             proc_group = dist.new_group(ranks=ranks)
             if self.global_rank in ranks:
                 self.ds_model_proc_group = proc_group
@@ -333,9 +327,6 @@ class PipelineParallelGrid:
         self.pp_proc_group = None
         self.pipe_groups = self._topo.get_axis_comm_lists('pipe')
         for ranks in self.pipe_groups:
-            if self.global_rank == 0:
-                #print(f'RANK={self.global_rank} building pipeline group: {ranks}')
-                pass
             proc_group = dist.new_group(ranks=ranks)
             if self.global_rank in ranks:
                 self.pp_group = ranks

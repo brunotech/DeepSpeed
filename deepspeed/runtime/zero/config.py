@@ -51,9 +51,9 @@ class DeepSpeedZeroConfig(DeepSpeedConfigObject):
         self._initialize(zero_config_dict)
 
     def read_zero_config_deprecated(self, param_dict):
-        zero_config_dict = {}
-        zero_config_dict[
-            ZERO_OPTIMIZATION_STAGE] = 1 if param_dict[ZERO_OPTIMIZATION] else 0
+        zero_config_dict = {
+            ZERO_OPTIMIZATION_STAGE: 1 if param_dict[ZERO_OPTIMIZATION] else 0
+        }
         if zero_config_dict[ZERO_OPTIMIZATION_STAGE] > 0:
             zero_config_dict[ZERO_OPTIMIZATION_ALLGATHER_BUCKET_SIZE] = get_scalar_param(
                 param_dict,
@@ -61,8 +61,8 @@ class DeepSpeedZeroConfig(DeepSpeedConfigObject):
                 ZERO_OPTIMIZATION_ALLGATHER_BUCKET_SIZE_DEFAULT)
 
         logger.warning(
-            'DeepSpeedConfig: this format of ZeRO optimization setup is deprecated. Please use the following format: {}'
-            .format(ZERO_FORMAT))
+            f'DeepSpeedConfig: this format of ZeRO optimization setup is deprecated. Please use the following format: {ZERO_FORMAT}'
+        )
         return zero_config_dict
 
     def _sanity_check(self, zero_config_dict):
@@ -129,21 +129,21 @@ class DeepSpeedZeroConfig(DeepSpeedConfigObject):
             ZERO_OPTIMIZATION_ELASTIC_CHECKPOINT_DEFAULT)
 
         if ZERO_OPTIMIZATION_CPU_OFFLOAD in zero_config_dict:
-            cpu_offload_optimizer = get_scalar_param(
+            if cpu_offload_optimizer := get_scalar_param(
                 zero_config_dict,
                 ZERO_OPTIMIZATION_CPU_OFFLOAD,
-                ZERO_OPTIMIZATION_CPU_OFFLOAD_DEFAULT)
-            if cpu_offload_optimizer:
+                ZERO_OPTIMIZATION_CPU_OFFLOAD_DEFAULT,
+            ):
                 self.offload_optimizer = get_default_offload_optimizer_config()
         else:
             self.offload_optimizer = get_offload_optimizer_config(zero_config_dict)
 
         if ZERO_OPTIMIZATION_CPU_OFFLOAD_PARAMS in zero_config_dict:
-            cpu_offload_params = get_scalar_param(
+            if cpu_offload_params := get_scalar_param(
                 zero_config_dict,
                 ZERO_OPTIMIZATION_CPU_OFFLOAD_PARAMS,
-                ZERO_OPTIMIZATION_CPU_OFFLOAD_PARAMS_DEFAULT)
-            if cpu_offload_params:
+                ZERO_OPTIMIZATION_CPU_OFFLOAD_PARAMS_DEFAULT,
+            ):
                 self.offload_param = get_default_offload_param_config()
         else:
             self.offload_param = get_offload_param_config(zero_config_dict)
